@@ -171,10 +171,10 @@ unsafe fn open_event(event_name: PCWSTR) -> WinResult<HANDLE> {
 }
 
 pub struct Config {
-    shmem_name: PCWSTR,
-    send_event_name: PCWSTR,
-    recv_event_name: PCWSTR,
-    disconnect_event_name: PCWSTR,
+    pub shmem_name: PCWSTR,
+    pub send_event_name: PCWSTR,
+    pub recv_event_name: PCWSTR,
+    pub disconnect_event_name: PCWSTR,
 }
 
 pub struct Sender<T, const SIZE: usize> {
