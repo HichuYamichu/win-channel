@@ -185,6 +185,9 @@ pub struct Sender<T, const SIZE: usize> {
     shutdown_event: HANDLE,
 }
 
+unsafe impl<T, const SIZE: usize> Send for Sender<T, { SIZE }> {}
+unsafe impl<T, const SIZE: usize> Sync for Sender<T, { SIZE }> {}
+
 impl<T, const SIZE: usize> Sender<T, { SIZE }> {
     pub unsafe fn new(config: Config) -> Result<Self, Error> {
         let (shmem, mapping, existed) =
@@ -271,6 +274,9 @@ pub struct Receiver<T, const SIZE: usize> {
     item_removed_event: HANDLE,
     shutdown_event: HANDLE,
 }
+
+unsafe impl<T, const SIZE: usize> Send for Receiver<T, { SIZE }> {}
+unsafe impl<T, const SIZE: usize> Sync for Receiver<T, { SIZE }> {}
 
 impl<T, const SIZE: usize> Receiver<T, { SIZE }> {
     pub unsafe fn new(config: Config) -> Result<Self, Error> {
