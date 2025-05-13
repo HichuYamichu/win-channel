@@ -170,6 +170,7 @@ unsafe fn open_event(event_name: PCWSTR) -> WinResult<HANDLE> {
     OpenEventW(SYNCHRONIZE | EVENT_MODIFY_STATE, false, event_name)
 }
 
+#[derive(Clone)]
 pub struct Config {
     pub shmem_name: PCWSTR,
     pub send_event_name: PCWSTR,
