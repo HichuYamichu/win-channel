@@ -1,3 +1,5 @@
+//! A cross process Windows channel.
+
 use std::{
     array,
     cell::UnsafeCell,
@@ -170,14 +172,20 @@ unsafe fn open_event(event_name: PCWSTR) -> WinResult<HANDLE> {
     OpenEventW(SYNCHRONIZE | EVENT_MODIFY_STATE, false, event_name)
 }
 
+/// Configuration object used to create `Sender` or `Receiver`.
 #[derive(Clone)]
 pub struct Config {
+    /// Name of shared memory to be used.
     pub shmem_name: PCWSTR,
+    /// Name of Windows Event used to signal `send` operations.
     pub send_event_name: PCWSTR,
+    /// Name of Windows Event used to signal `recv` operations.
     pub recv_event_name: PCWSTR,
+    /// Name of Windows Event used to signal `shutdown` operations.
     pub disconnect_event_name: PCWSTR,
 }
 
+/// The sending side of a channel.
 pub struct Sender<T, const SIZE: usize> {
     shared_queue: *mut Queue<T, { SIZE }>,
     mem_mapping: HANDLE,
@@ -190,6 +198,16 @@ unsafe impl<T, const SIZE: usize> Send for Sender<T, { SIZE }> {}
 unsafe impl<T, const SIZE: usize> Sync for Sender<T, { SIZE }> {}
 
 impl<T, const SIZE: usize> Sender<T, { SIZE }> {
+    /// # SAFETY
+    ///
+    /// All `Sender` and `Receiver` structures must have the same configurations when connecting to the
+    /// same shared memory (this includes `SIZE` constant).
+    ///
+    /// `SIZE` must be a multiple of 2.
+    ///
+    /// If shutdown was not complete (one of the processes hung up) and you reuse the same
+    /// configuration you might connect to leftover state. If you can't guarantee that every conected
+    /// instance was dropped either don't run `shutdown` or don't reuse the same config.
     pub unsafe fn new(config: Config) -> Result<Self, Error> {
         let (shmem, mapping, existed) =
             create_or_map_shmem_queue::<T, { SIZE }>(config.shmem_name)?;
@@ -218,6 +236,8 @@ impl<T, const SIZE: usize> Sender<T, { SIZE }> {
         Ok(s)
     }
 
+    /// # SAFETY
+    /// You cannot send types that are dependant on current address space (types with pointers, references, etc)
     pub unsafe fn try_send(&self, value: T) -> Result<(), TrySendError<T>> {
         let is_shutting_down = WaitForSingleObject(self.shutdown_event, 0) == WAIT_OBJECT_0;
         if is_shutting_down {
@@ -227,6 +247,8 @@ impl<T, const SIZE: usize> Sender<T, { SIZE }> {
         return res.map_err(|e| TrySendError::Full(e));
     }
 
+    /// # SAFETY
+    /// You cannot send types that are dependant on current address space (types with pointers, references, etc)
     pub unsafe fn send(&self, mut value: T) -> Result<(), SendError<T>> {
         while let Err(v) = (*self.shared_queue).push(value) {
             value = v;
@@ -248,8 +270,8 @@ impl<T, const SIZE: usize> Sender<T, { SIZE }> {
         return Ok(());
     }
 
-    pub unsafe fn shutdown(&self) -> Result<(), Error> {
-        SetEvent(self.shutdown_event)
+    pub fn shutdown(&self) -> Result<(), Error> {
+        unsafe { SetEvent(self.shutdown_event) }
     }
 }
 
@@ -268,6 +290,7 @@ impl<T, const SIZE: usize> Drop for Sender<T, { SIZE }> {
     }
 }
 
+/// The receiving side of a channel.
 pub struct Receiver<T, const SIZE: usize> {
     shared_queue: *mut Queue<T, { SIZE }>,
     mem_mapping: HANDLE,
@@ -280,6 +303,18 @@ unsafe impl<T, const SIZE: usize> Send for Receiver<T, { SIZE }> {}
 unsafe impl<T, const SIZE: usize> Sync for Receiver<T, { SIZE }> {}
 
 impl<T, const SIZE: usize> Receiver<T, { SIZE }> {
+    /// # SAFETY
+    ///
+    /// All `Sender` and `Receiver` structures must have the same configurations when connecting to the
+    /// same shared memory (this includes `SIZE` constant).
+    ///
+    /// `SIZE` must be a multiple of 2.
+    ///
+    /// If shutdown was not complete (one of the processes hung up) and you reuse the same
+    /// configuration you might connect to leftover state. If you can't guarantee that every conected
+    /// instance was dropped either don't run `shutdown` or don't reuse the same config.
+    ///
+    /// There can be at most one Receiver at a time.
     pub unsafe fn new(config: Config) -> Result<Self, Error> {
         let (shmem, mapping, existed) =
             create_or_map_shmem_queue::<T, { SIZE }>(config.shmem_name)?;
@@ -308,10 +343,12 @@ impl<T, const SIZE: usize> Receiver<T, { SIZE }> {
         Ok(s)
     }
 
+    /// SAFETY: You cannot receive types that are dependant on current address space (types with pointers, references, etc)
     pub unsafe fn try_recv(&self) -> Option<T> {
         unsafe { (*self.shared_queue).pop() }
     }
 
+    /// SAFETY: You cannot receive types that are dependant on current address space (types with pointers, references, etc)
     pub unsafe fn recv(&self) -> Result<T, RecvError> {
         loop {
             unsafe {
@@ -337,8 +374,8 @@ impl<T, const SIZE: usize> Receiver<T, { SIZE }> {
         }
     }
 
-    pub unsafe fn shutdown(&self) -> Result<(), Error> {
-        SetEvent(self.shutdown_event)
+    pub fn shutdown(&self) -> Result<(), Error> {
+        unsafe { SetEvent(self.shutdown_event) }
     }
 }
 
